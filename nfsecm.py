@@ -80,7 +80,7 @@ def analyze_ecm_nfs_xover(digit_level, nfs_hours, include_missed_factors=1/2):
      if count < 0:
           print("Doing triple the expected curves would still be worth it, so you'll need to go to {} digits".format(digit_level+5))
           return count
-     print("With roughly {:3f}% odds of a factor existing, you should do {} curves at {} digits before switching to NFS".format(odds_factor_exists*100, count, digit_level))
+     print("With roughly {:.2f}% odds of a factor existing, you should do {} curves at {} digits before switching to NFS".format(odds_factor_exists*100, count, digit_level))
      return count
 
 def main():
