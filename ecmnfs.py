@@ -58,7 +58,7 @@ def compare_nfs_ecm(nfs_hours, median_curves, hours_per_curve, odds_factor_exist
 
      return int(x1)
 
-def analyze_ecm_nfs_xover(digit_level, nfs_hours, include_missed_factors=1/2):
+def analyze_ecm_nfs_xover(digit_level, nfs_hours):
      if digit_level not in ecm_table:
           raise ValueError("Only have information to analyze the following digit levels:\n{}".format(ecm_table.keys()))
      median_curves, hours_per_curve = ecm_table[digit_level]
@@ -67,10 +67,16 @@ def analyze_ecm_nfs_xover(digit_level, nfs_hours, include_missed_factors=1/2):
      odds_of_factor = odds_of_factor_between(digit_level-4, digit_level)
      missed_factor_odds = exp(-1) * odds_of_factor_between(digit_level-9, digit_level-5)
      # While the lower level ECM may have missed a factor, there's also a chance for it to find a
-     # factor larger than digits-5. In lieu of actually quantifying those odds, we merely fudge off
-     # some of the missed factor odds.
-     missed_factor_odds *= include_missed_factors
-     odds_factor_exists = odds_of_factor + missed_factor_odds
+     # factor larger than digits-5.
+     # To quantify this, I follow the analysis here: http://mersenneforum.org/showthread.php?p=427989#post427989
+     # The bottom line is that at pseudo-optimal B1 bounds (there is some slight variation between different
+     # bounds), ECM effort doubles roughly every 2 digits, so that (e.g.) 1t55 ~= 1/(2^(5/2)) t60 ~= 0.1768 t60.
+     # Thus the odds of a higher factor being missed are exp(-2^(-2.5))
+     digits_ecm_effort_doubles = 2
+     equiv_effort_at_higher_digit_level = 1/(2**(5/digits_ecm_effort_doubles))
+     odds_to_find_higher_factor = -expm1(-equiv_effort_at_higher_digit_level)
+
+     odds_factor_exists = missed_factor_odds + (1-odds_to_find_higher_factor)*odds_of_factor
 
      count = compare_nfs_ecm(nfs_hours, median_curves, hours_per_curve, odds_factor_exists)
 
@@ -87,8 +93,6 @@ def main():
      from sys import argv
      if len(argv) == 3:
           analyze_ecm_nfs_xover(int(argv[1]), int(argv[2]))
-     elif len(argv) == 4:
-          analyze_ecm_nfs_xover(int(argv[1]), int(argv[2]), float(argv[3]))
      else:
           raise ValueError("Args must be 'digits nfs_hours [missed factor fraction]'")
 
