@@ -1,0 +1,8 @@
+This is a relatively small and hopefully simple script to calculate when you
+should stop running ECM curves on a number and start dedicating your resources
+to NFS instead. Work in progress, though primary functionality works already.
+
+The basic premise is that when the ECM-work-done/odds-of-success-for-that-work
+ratio becomes larger than the estimated NFS work, that's when you switch. In
+turn, this module takes care of (most of) the details in actually calculating
+the odds of success.

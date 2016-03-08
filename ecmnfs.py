@@ -1,4 +1,25 @@
-#! /usr/bin/python3
+#! /usr/bin/env python3
+
+# This is written to Python 3.5 standards (though so far I think it would work fine on e.g. 3.3)
+# Note: tab depth is 5, as a personal preference
+
+
+#    Copyright (C) 2016 Bill Winslow
+#
+#    This module is a part of the ecmnfs package.
+#
+#    This program is libre software: you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation, either version 3 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#
+#    See the LICENSE file for more details.
+
+####################################################################################################
 
 # Some functions to decide the crossover between NFS and ECM, given: thread hours required for NFS
 # and thread hours required per curve at the given ECM level
