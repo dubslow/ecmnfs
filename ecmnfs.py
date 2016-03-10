@@ -34,12 +34,15 @@ from math import exp, expm1 # Higher precision than exp(x) - 1 for small |x|
 
 def odds_of_factor_between(m, n):
      # Returns the odds that there's a factor with size between m and n digits inclusive
+     # This is only really accurate for an infinitely large number, but is a reasonably good
+     # approximation for n << sqrt(num)
      odds = 0
      for d in range(m, n+1):
           odds += 1/d
      return odds
 
-def compare_nfs_ecm(median_curves, work_per_curve, odds_factor_exists, nfs_work):
+
+def solve_xover(median_curves, work_per_curve, odds_factor_exists, nfs_work):
      '''This is the meat, the workhorse. Everything else is a helper to precompute the arguments for
      this function.
      
@@ -85,8 +88,8 @@ def compare_nfs_ecm(median_curves, work_per_curve, odds_factor_exists, nfs_work)
           x1 = -x1
      return x1, cdf, ecm_func
 
-def analyze_ecm_nfs_xover(digit_level, median_curves, work_per_curve, nfs_work, twork_at_prior_level=1):
 
+def calc_odds_factor_exists(digit_level, twork_at_prior_level=1):
      # This accounts for the amount of work done at the digits-5 level (default assumed to be standard 1t-level)
      # On the whole, the next several lines are relatively shoddy, all things considered. There's a ton of
      # guesswork, approximation, and straight up fudge work that may even be patently false. But I guess
@@ -107,22 +110,29 @@ def analyze_ecm_nfs_xover(digit_level, median_curves, work_per_curve, nfs_work, 
      equiv_effort_at_higher_digit_level = twork_at_prior_level/five_digit_ecm_effort_ratio
      odds_higher_factor_missed = exp(-equiv_effort_at_higher_digit_level)
 
-     odds_factor_exists = missed_factor_odds + odds_higher_factor_missed*odds_of_factor
+     return missed_factor_odds + odds_higher_factor_missed*odds_of_factor
      # This assumes all factors between digits-9 and digits are equally likely to be found by a given curve,
      # which is distinctly untrue
 
-     count, cdf, ecm_func = compare_nfs_ecm(median_curves, work_per_curve, odds_factor_exists, nfs_work)
 
+def analyze_one_digit_level(digit_level, median_curves, work_per_curve, nfs_work, twork_at_prior_level=1):
+     '''This puts a couple other functions together.
+     Return value is (count, ecm_func, cdf, odds_factor_exists).'''
+
+     odds_factor_exists = calc_odds_factor_exists(digit_level, twork_at_prior_level)
+
+     count, cdf, ecm_func = solve_xover(median_curves, work_per_curve, odds_factor_exists, nfs_work)
+
+     return count, cdf, ecm_func, odds_factor_exists
+
+
+def print_result(count, digit_level, cdf, odds_factor_exists):
      if count == 0:
           print("Not even one curve should be done, forget about ECM at {} digits.".format(digit_level))
      elif count < 0:
           print("Doing triple the expected curves would still be worth it, so you should definitely consider doing work at {} digits".format(digit_level+5))
      else:
           print("With ~{:.1f}% odds of a factor existing and ~{:.1f}% net odds of success, you should do {} curves at {} digits before switching to NFS".format(odds_factor_exists*100, cdf(count)*100, count, digit_level))
-
-     do_fancy_plots(digit_level, count, median_curves, ecm_func, cdf, nfs_work)
-
-     return count
 
 
 ecm_table= {50: (7553, 316/3600),
@@ -136,23 +146,28 @@ ecm_table= {50: (7553, 316/3600),
 def main():
      # Bit of a mess
      from sys import argv
-     if len(argv) == 3 or len(argv) == 4:
-          digit_level, nfs_work = [int(arg) for arg in argv[1:3]]           
-          if digit_level not in ecm_table:
-               raise ValueError("Only have information to analyze the following digit levels:\n{}".format(ecm_table.keys()))
-          
-          median_curves, work_per_curve = ecm_table[digit_level]
-          if len(argv) == 4:
-               analyze_ecm_nfs_xover(digit_level, median_curves, work_per_curve, nfs_work, float(argv[3]))
-          else:
-               analyze_ecm_nfs_xover(digit_level, median_curves, work_per_curve, nfs_work)
-     else:
+     if len(argv) != 3 and len(argv) != 4:
           raise ValueError("Args must be 'digits nfs_work [prior level t-effort]'")
+
+     digit_level, nfs_work = [int(arg) for arg in argv[1:3]]           
+     if digit_level not in ecm_table:
+          raise ValueError("Only have information to analyze the following digit levels:\n{}".format(ecm_table.keys()))
+
+     median_curves, work_per_curve = ecm_table[digit_level]
+     if len(argv) == 4:
+          count, cdf, ecm_func, odds_factor_exists = \
+               analyze_one_digit_level(digit_level, median_curves, work_per_curve, nfs_work, float(argv[3]))
+     else:
+          count, cdf, ecm_func, odds_factor_exists = \
+               analyze_one_digit_level(digit_level, median_curves, work_per_curve, nfs_work)
+
+     print_result(count, digit_level, cdf, odds_factor_exists)
+     do_fancy_plots(count, digit_level, median_curves, cdf, ecm_func, nfs_work)
 
 ####################################################################################################
 # Dump this out of the way
 
-def do_fancy_plots(digit_level, count, median_curves, ecm_func, cdf, nfs_work):
+def do_fancy_plots(count, digit_level, median_curves, cdf, ecm_func, nfs_work):
      try:
           import matplotlib.pyplot as plt
           import numpy as np
