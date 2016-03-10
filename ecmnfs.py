@@ -29,17 +29,20 @@
 # Thus, given the relevant parameters, this module will calculate the effective ECM-work-done
 # crossover point, where it becomes more effective to switch to NFS.
 
-from math import exp, expm1 # Higher precision than exp(x) - 1 for small |x|
+from math import log, exp, expm1 # Higher precision than exp(x) - 1 for small |x|
+lg10 = log(10)
+def rnd(n):
+     return int(round(n))
 
-
-def odds_of_factor_between(m, n):
-     # Returns the odds that there's a factor with size between m and n digits inclusive
-     # This is only really accurate for an infinitely large number, but is a reasonably good
-     # approximation for n << sqrt(num)
-     odds = 0
-     for d in range(m, n+1):
-          odds += 1/d
-     return odds
+def odds_of_factor_between(x, y):
+     # Returns the odds that there's a factor with size between x and y digits inclusive
+     # A prime p << sqrt(n) divides n with probability 1/p, so we sum 1/p over relevant digit ranges
+     # http://mathworld.wolfram.com/HarmonicSeriesofPrimes.html
+     # $\sum_{p \lte x}{1/p} ~ log log x + constants
+     # 50 digit numbers are those between 10^49 and 10^50,
+     # so 46-50 digit numbers are those between 10^45 and 10^50
+     # log log 10^x = log(x*log(10))
+     return log(y*lg10) - log((x-1)*lg10)
 
 
 def calc_odds_factor_exists(digit_level, twork_at_prior_level=1):
@@ -110,7 +113,7 @@ def solve_xover(median_curves, f, fprime):
           x0 = x1
           x1 = x0 - f(x0)/fprime(x0)
 
-     x1 = int(x1)
+     x1 = rnd(x1)
      if x1 > 3*median_curves:
           return -x1
      return x1
@@ -167,22 +170,13 @@ def analyze_all_digit_levels(ecm_data, nfs_work):
      count = solve_xover(median_curves, f, fprime)
      if count == 0:
           raise ValueError("Damn, impressive. You ran into a strange edge case where accounting for prior work renders the highest level no longer worthwhile.")
-     return count, digit_level, median_curves, cdf, ecm_func, odds_factor_exists, int(work_budget), out
+     return count, digit_level, median_curves, cdf, ecm_func, odds_factor_exists, rnd(work_budget), out
 
 # End calculation functions
 ####################################################################################################
 # Begin interface functions
 
 # First the old school, one-level-at-a-time interface
-
-def print_result(count, digit_level, cdf, odds_factor_exists):
-     if count == 0:
-          print("Not even one curve should be done, forget about ECM at {} digits.".format(digit_level))
-     elif count < 0:
-          print("Doing triple the expected curves would still be worth it, so you should definitely consider doing work at {} digits".format(digit_level+5))
-     else:
-          print("With ~{:.1f}% odds of a factor existing and ~{:.1f}% net odds of success, you should do {} curves at {} digits before switching to NFS".format(odds_factor_exists*100, cdf(count)*100, count, digit_level))
-
 
 def main(argv):
      # Bit of a mess
@@ -201,7 +195,7 @@ def main(argv):
           count, cdf, ecm_func, odds_factor_exists = \
                analyze_one_digit_level(digit_level, median_curves, work_per_curve, nfs_work)
 
-     print_result(count, digit_level, cdf, odds_factor_exists)
+     print_result(count, digit_level, cdf, odds_factor_exists, nfs_work)
      do_fancy_plots(count, digit_level, median_curves, cdf, ecm_func, nfs_work)
 
 ###############################################################
@@ -221,13 +215,21 @@ def alt_main(argv):
      count, digit_level, median_curves, cdf, ecm_func, odds_factor_exists, work_budget, out = analyze_all_digit_levels(ecm_table, int(argv[1]))
 
      for digits, equiv_work_at_this_level, odds in out:
-          print("Doing the median curves at {} digits is {} equivalent work with {:.1f}% odds of success".format(digits, int(equiv_work_at_this_level), odds*100))
+          print("Doing the median curves at {} digits is {} equivalent work with {:.1f}% odds of success".format(digits, rnd(equiv_work_at_this_level), odds*100))
      
-     print_result(count, digit_level, cdf, odds_factor_exists)
+     print_result(count, digit_level, cdf, odds_factor_exists, work_budget)
      do_fancy_plots(count, digit_level, median_curves, cdf, ecm_func, work_budget)
 
 ####################################################################################################
 # Dump this out of the way
+
+def print_result(count, digit_level, cdf, odds_factor_exists, work_budget):
+     if count == 0:
+          print("Not even one curve should be done, forget about ECM at {} digits.".format(digit_level))
+     elif count < 0:
+          print("Doing triple the expected curves would still be worth it, so you should definitely consider doing work at {} digits".format(digit_level+5))
+     else:
+          print("With ~{:.1f}% odds of a factor existing and ~{:.1f}% net odds of success, you should do {} curves at {} digits ({} equiv work budget) before switching to NFS".format(odds_factor_exists*100, cdf(count)*100, count, digit_level, work_budget))
 
 def do_fancy_plots(count, digit_level, median_curves, cdf, ecm_func, nfs_work):
      try:
