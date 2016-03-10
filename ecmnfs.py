@@ -42,53 +42,6 @@ def odds_of_factor_between(m, n):
      return odds
 
 
-def solve_xover(median_curves, work_per_curve, odds_factor_exists, nfs_work):
-     '''This is the meat, the workhorse. Everything else is a helper to precompute the arguments for
-     this function.
-     
-     The arguments are self explanatory. The return value (curves, cdf, ecm_func), where `curves`
-     is either number of curves to do, or negative if you should just do the usual ECM before
-     proceeding to the next level. `cdf` is the function describing net odds of success, and `ecm_func`
-     is the function ecm_work/cdf.
-     '''
-     # Now we want to find the crossover where ecm-work/odds_of_success = nfs_work.
-     # That is, curves*work_per_curve/[odds*(1-exp(-curves/median))] = nfs_work, which is transcendental.
-     # Fortunately it's an analytic function with one pathology at zero, yet even there f and all its
-     # derivatives have a limit at 0, i.e., the Taylor series converges everywhere. So we can solve
-     # the equation with blind and stupid Newton iteration.
-     cdf = lambda curves: odds_factor_exists*-expm1(-curves/median_curves)
-     # limit as x->0 of x/(1-exp(-x/a)) is a
-     ecm_func = lambda curves: work_per_curve * (curves/cdf(curves) if curves != 0 else median_curves/odds_factor_exists)
-     f = lambda curves: ecm_func(curves) - nfs_work
-
-     if f(1) > 0:
-          return 0, cdf, ecm_func
-
-     # limit as x->0 of d/dcurves ecm_func = 1/2
-     def fprime(curves):
-          if curves == 0:
-               return work_per_curve / (2*odds_factor_exists)
-          arg = curves/median_curves
-          l = -expm1(-arg) # 1-exp(-arg)
-          # d/dx (x/l) = (l - x*l')/l^2
-          # x*l' = arg*(1-l)
-          return work_per_curve / odds_factor_exists * (l+arg*(l-1)) / (l*l)
-
-     x0 = median_curves
-     x1 = x0 - f(x0)/fprime(x0)
-     #print("not looping:", x0, x0/median_curves, f(x0), x1)
-     while abs(x1 - x0) > 0.5:
-          x0 = x1
-          x1 = x0 - f(x0)/fprime(x0)
-          #print("looping:", x0, x0/median_curves, f(x0), x1)
-
-     #print(x1, f(x1), f(x1-1), f(x1+1))
-     x1 = int(x1)
-     if x1 > 3*median_curves:
-          x1 = -x1
-     return x1, cdf, ecm_func
-
-
 def calc_odds_factor_exists(digit_level, twork_at_prior_level=1):
      # This accounts for the amount of work done at the digits-5 level (default assumed to be standard 1t-level)
      # On the whole, the next several lines are relatively shoddy, all things considered. There's a ton of
@@ -115,16 +68,112 @@ def calc_odds_factor_exists(digit_level, twork_at_prior_level=1):
      # which is distinctly untrue
 
 
+def generate_functions(median_curves, work_per_curve, odds_factor_exists, nfs_work):
+     '''This takes the input data and generates the interesting functions to be optimized, without
+     actually doing the optimization yet.'''
+     # We want to find the crossover where ecm-work/odds_of_success = nfs_work.
+     # That is, curves*work_per_curve/[odds*(1-exp(-curves/median))] = nfs_work, which is transcendental.
+     # Fortunately it's an analytic function with one pathology at zero, yet even there f and all its
+     # derivatives have a limit at 0, i.e., the Taylor series converges everywhere. So we can solve
+     # the equation with blind and stupid Newton iteration.
+     cdf = lambda curves: odds_factor_exists*-expm1(-curves/median_curves)
+     # limit as x->0 of x/(1-exp(-x/a)) is a
+     ecm_func = lambda curves: work_per_curve * (curves/cdf(curves) if curves != 0 else median_curves/odds_factor_exists)
+     f = lambda curves: ecm_func(curves) - nfs_work
+
+     # limit as x->0 of d/dcurves ecm_func = 1/2
+     def fprime(curves):
+          if curves == 0:
+               return work_per_curve / (2*odds_factor_exists)
+          arg = curves/median_curves
+          l = -expm1(-arg) # 1-exp(-arg)
+          # d/dx (x/l) = (l - x*l')/l^2
+          # x*l' = arg*(1-l)
+          return work_per_curve / odds_factor_exists * (l+arg*(l-1)) / (l*l)
+
+     return cdf, ecm_func, f, fprime
+
+
+def solve_xover(median_curves, f, fprime):
+     '''This is the meat, the workhorse. Everything else is a helper to precompute the arguments for
+     this function.
+     
+     The return value is either number of curves to do, or negative if you should just do the usual
+     ECM before proceeding to the next level. 
+     '''
+     if f(1) > 0:
+          return 0
+
+     x0 = median_curves
+     x1 = x0 - f(x0)/fprime(x0)
+     while abs(x1 - x0) > 0.5:
+          x0 = x1
+          x1 = x0 - f(x0)/fprime(x0)
+
+     x1 = int(x1)
+     if x1 > 3*median_curves:
+          return -x1
+     return x1
+
+
 def analyze_one_digit_level(digit_level, median_curves, work_per_curve, nfs_work, twork_at_prior_level=1):
      '''This puts a couple other functions together.
      Return value is (count, ecm_func, cdf, odds_factor_exists).'''
 
      odds_factor_exists = calc_odds_factor_exists(digit_level, twork_at_prior_level)
 
-     count, cdf, ecm_func = solve_xover(median_curves, work_per_curve, odds_factor_exists, nfs_work)
+     cdf, ecm_func, f, fprime = generate_functions(median_curves, work_per_curve, odds_factor_exists, nfs_work)
+
+     count = solve_xover(median_curves, f, fprime)
 
      return count, cdf, ecm_func, odds_factor_exists
 
+
+def analyze_all_digit_levels(ecm_data, nfs_work):
+     '''`ecm_data` is an ordered list of (digit_level, median_curves, work_per_curve) tuples
+     describing all possible digit levels of work. This function will then analyze how much ECM
+     should be done. The results will return a specific digit level and curve count, and it is
+     assumed that all lower levels will also get one t-effort's worth of work in addition to the
+     final level curve count.'''
+     ecm_data.sort(key=lambda tup: tup[0])
+     # This is sadly a bit of a mess...
+
+     # First we analyze all curve levels, and then toss all the highest ones that aren't worthwhile.
+     # Then we adjust the final level to account for the total work done at the prior levels.
+     results = []
+     for digit_level, median_curves, work_per_curve in ecm_data:
+          odds_factor_exists = calc_odds_factor_exists(digit_level, 1) # 1 t-effort of work is assumed
+          cdf, ecm_func, f, fprime = generate_functions(median_curves, work_per_curve, odds_factor_exists, nfs_work)
+          if f(1) > 0: # This and all higher levels aren't worthwhile
+               break
+          else:
+               results.append((digit_level, median_curves, work_per_curve, odds_factor_exists, cdf, ecm_func))
+     else:
+          print("The highest digit level {} has positive worthwhile work, be sure you shouldn't be going higher as well".format(digit_level))
+
+     ###############################################################################################
+     # Now we know which levels are worthwhile, we can adjust the final level work to account for
+     # previous level work done
+     work_budget = nfs_work
+     out = []
+     # For all but the last level, we do just a standard t-effort of work
+     for digit_level, median_curves, _, _, cdf, ecm_func in results[:-1]:
+          equiv_work_at_this_level = ecm_func(median_curves) # ecm_func = total_work/cdf
+          work_budget -= equiv_work_at_this_level
+          out.append((digit_level, equiv_work_at_this_level, cdf(median_curves)))
+     # Now redo the final level cross over
+     digit_level, median_curves, work_per_curve, odds_factor_exists, _, _ = results[-1]
+     cdf, ecm_func, f, fprime = generate_functions(median_curves, work_per_curve, odds_factor_exists, work_budget)
+     count = solve_xover(median_curves, f, fprime)
+     if count == 0:
+          raise ValueError("Damn, impressive. You ran into a strange edge case where accounting for prior work renders the highest level no longer worthwhile.")
+     return count, digit_level, median_curves, cdf, ecm_func, odds_factor_exists, int(work_budget), out
+
+# End calculation functions
+####################################################################################################
+# Begin interface functions
+
+# First the old school, one-level-at-a-time interface
 
 def print_result(count, digit_level, cdf, odds_factor_exists):
      if count == 0:
@@ -135,17 +184,8 @@ def print_result(count, digit_level, cdf, odds_factor_exists):
           print("With ~{:.1f}% odds of a factor existing and ~{:.1f}% net odds of success, you should do {} curves at {} digits before switching to NFS".format(odds_factor_exists*100, cdf(count)*100, count, digit_level))
 
 
-ecm_table= {50: (7553, 316/3600),
-            55: (17769, 880/3600),
-            60: (42017, 2040/3600),
-            65: (69408, 1.77)
-           }
-# Digit level, median curve count, and hours per curve on a 195 digit number
-# Median = scale = 1/rate in CDF(x) = 1 - exp(-x/scale)
-
-def main():
+def main(argv):
      # Bit of a mess
-     from sys import argv
      if len(argv) != 3 and len(argv) != 4:
           raise ValueError("Args must be 'digits nfs_work [prior level t-effort]'")
 
@@ -163,6 +203,28 @@ def main():
 
      print_result(count, digit_level, cdf, odds_factor_exists)
      do_fancy_plots(count, digit_level, median_curves, cdf, ecm_func, nfs_work)
+
+###############################################################
+# Now the newer analyze-all-levels stuff
+
+ecm_table= [(40, 2350, 23/3600),
+            (45, 4480, 84/3600),
+            (50, 7553, 316/3600),
+            (55, 17769, 880/3600),
+            (60, 42017, 2040/3600),
+            (65, 69408, 1.77)
+           ]
+# Digit level, median curve count, and hours per curve on a 195 digit number
+# Median = scale = 1/rate in CDF(x) = 1 - exp(-x/scale)
+
+def alt_main(argv):
+     count, digit_level, median_curves, cdf, ecm_func, odds_factor_exists, work_budget, out = analyze_all_digit_levels(ecm_table, int(argv[1]))
+
+     for digits, equiv_work_at_this_level, odds in out:
+          print("Doing the median curves at {} digits is {} equivalent work with {:.1f}% odds of success".format(digits, int(equiv_work_at_this_level), odds*100))
+     
+     print_result(count, digit_level, cdf, odds_factor_exists)
+     do_fancy_plots(count, digit_level, median_curves, cdf, ecm_func, work_budget)
 
 ####################################################################################################
 # Dump this out of the way
@@ -195,7 +257,7 @@ def do_fancy_plots(count, digit_level, median_curves, cdf, ecm_func, nfs_work):
           if count > 0:
                dotx, doty = count, ecm_func(count)
                plt.plot([dotx], [doty], 'ro')
-               plt.annotate('At {} total NFS work, the crossover is {} curves'.format(nfs_work, count), xy=(dotx, doty), xytext=(5, -15), textcoords='offset points')
+               plt.annotate('At {} total work budget, the crossover is {} curves'.format(nfs_work, count), xy=(dotx, doty), xytext=(5, -15), textcoords='offset points')
 
           plt.tight_layout()
           plt.show()
@@ -203,4 +265,8 @@ def do_fancy_plots(count, digit_level, median_curves, cdf, ecm_func, nfs_work):
           pass
 
 if __name__ == '__main__':
-     main()
+     from sys import argv
+     if len(argv) > 2:
+          main(argv)
+     else:
+          alt_main(argv)
