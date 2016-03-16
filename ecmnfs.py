@@ -29,20 +29,50 @@
 # Thus, given the relevant parameters, this module will calculate the effective ECM-work-done
 # crossover point, where it becomes more effective to switch to NFS.
 
-from math import log, exp, expm1 # Higher precision than exp(x) - 1 for small |x|
+from functools import lru_cache
+from math import isnan, floor, log, exp, expm1 # Higher precision than exp(x) - 1 for small |x|
 lg10 = log(10)
 def rnd(n):
      return int(round(n))
 
-def odds_of_factor_between(x, y):
-     # Returns the odds that there's a factor with size between x and y digits inclusive
-     # A prime p << sqrt(n) divides n with probability 1/p, so we sum 1/p over relevant digit ranges
-     # http://mathworld.wolfram.com/HarmonicSeriesofPrimes.html
-     # $\sum_{p \lte x}{1/p} ~ log log x + constants
-     # 50 digit numbers are those between 10^49 and 10^50,
-     # so 46-50 digit numbers are those between 10^45 and 10^50
-     # log log 10^x = log(x*log(10))
-     return log(y*lg10) - log((x-1)*lg10)
+
+@lru_cache()
+def odds_of_factor_between(a, b, n=105720747827131650775565137946594727648048676926428801477497713261333062158444658783837181718187127016255169032147325982158719006483898971407998273736975091062494070213867530300194317862973608499):
+     '''This gives the odds that n has a factor between 10^a and 10^b.'''
+     lgn = log(n)/lg10
+     if not (lgn/2 >= b > a > 0):
+          raise ValueError("sqrt(n) must be larger than 10^b must be larger than 10^a must be larger than 1")
+     # This function follows the calculation given in:
+     # Robert D. Silverman and Samuel S. Wagstaff,
+     # A practical analysis of the elliptic curve factoring algorithm,
+     # Math. Comp. 61 (1993), no. 203, 445-462. MR 1122078, http://dx.doi.org/10.1090/S0025-5718-1993-1122078-7
+     # Full text freely available at
+     # http://www.ams.org/journals/mcom/1993-61-203/S0025-5718-1993-1122078-7/S0025-5718-1993-1122078-7.pdf
+     # The argument is given for factors between y and y^(1+eps), so y=10^a and eps = b/a-1
+     # Next let y = n^delta, then d = floor(1/delta) is the number of terms in the sum given.
+     # 10^a = n^delta => a log(10) = delta log(n) => delta = a log(10)/log(n)
+     d = floor(lgn/a)
+     # The sum is the first d terms of the Taylor series for 1-exp(-x), where x = the sum of the inverse primes
+     # between 10^a and 10^b. Merterns' second theorem gives this is as log log 10^b - log log 10^a
+     # = log (b log(10)) - log(a log(10)) = log(b) + log(10) - log(a) - log(10) = log(b/a)
+     x = log(b/a)
+     odds = 0
+     factorial = 1
+     power = 1
+     sign = -1
+     for i in range(1, d+1):
+          sign = -sign
+          power *= x
+          factorial /= i
+          term = sign*power*factorial
+          if isnan(term):
+               break
+          newodds = odds + term
+          if newodds == odds:
+               break
+          odds = newodds
+
+     return odds
 
 
 def calc_odds_factor_exists(digit_level, twork_at_prior_level=1):
@@ -51,8 +81,8 @@ def calc_odds_factor_exists(digit_level, twork_at_prior_level=1):
      # guesswork, approximation, and straight up fudge work that may even be patently false. But I guess
      # it's a decent first order approximation... hopefully
      #
-     odds_of_factor = odds_of_factor_between(digit_level-4, digit_level)
-     missed_factor_odds = exp(-twork_at_prior_level) * odds_of_factor_between(digit_level-9, digit_level-5)
+     odds_of_factor = odds_of_factor_between(digit_level-5, digit_level)
+     missed_factor_odds = exp(-twork_at_prior_level) * odds_of_factor_between(digit_level-10, digit_level-5)
      # Ignore the nearly trivial work at lower levels
      
      # While the lower level ECM may have missed a factor, there's also a chance for it to find a
