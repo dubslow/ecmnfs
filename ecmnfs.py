@@ -74,6 +74,22 @@ def odds_of_factor_between(a, b, n=105720747827131650775565137946594727648048676
 
      return odds
 
+def odds_of_factor_after_ecm(digit_level):
+     '''Returns the odds that a factor exists between digit_level-8 and digit_level, given that ECM
+     has failed to find a factor up digit_level-8 (which is an approximation for one t-effort at
+     digit_level-5)'''
+     # http://mersenneforum.org/showthread.php?p=429405#post429405
+     a = digit_level - 7
+     b = digit_level
+     # P(A) = f(1, a)
+     # P(B) = f(a, b)
+     # P(A union B) = f(1, b)
+     # Therefore as described by the above link, P(B | notA) = (P(A union B) - P(A))/(1-P(A))
+     PA = odds_of_factor_between(1, a)
+     PAUB = odds_of_factor_between(1, b)
+     print(PA, PAUB)
+     return (PAUB - PA)/(1-PA)
+
 
 def calc_odds_factor_exists(digit_level, twork_at_prior_level=1):
      # This accounts for the amount of work done at the digits-5 level (default assumed to be standard 1t-level)
